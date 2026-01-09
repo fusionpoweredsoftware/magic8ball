@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magic 8 Ball</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #2c2c2c 0%, #1a1a1a 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        .title {
+            color: #fff;
+            font-size: 2.5em;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            position: relative;
+            z-index: 10;
+        }
+
+        #canvas-container {
+            width: 600px;
+            height: 600px;
+            cursor: grab;
+            position: relative;
+            overflow: hidden;
+            clip-path: circle(50% at center);
+        }
+
+        #canvas-container:active {
+            cursor: grabbing;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .instruction {
+            color: #aaa;
+            font-size: 1.2em;
+            margin-top: 30px;
+            text-align: center;
+            position: relative;
+            z-index: 10;
+        }
+
+
+    </style>
+</head>
+<body>
+    <h1 class="title">Magic 8 Ball</h1>
+    
+    <div id="canvas-container">
+    </div>
+
+    <p class="instruction">Click and drag to spin the ball</p>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const answers = [
+            "IT IS\nCERTAIN",
+            "WITHOUT\nA DOUBT",
+            "YES\nDEFINITELY",
+            "YOU MAY\nRELY\nON IT",
+            "AS I\nSEE IT\nYES",
+            "MOST\nLIKELY",
+            "OUTLOOK\nGOOD",
+            "YES",
+            "SIGNS\nPOINT\nTO YES",
+            "REPLY\nHAZY\nTRY AGAIN",
+            "ASK\nAGAIN\nLATER",
+            "BETTER\nNOT TELL\nYOU NOW",
+            "CANNOT\nPREDICT\nNOW",
+            "CONCENTRATE\nAND ASK\nAGAIN",
+            "DON'T\nCOUNT\nON IT",
+            "MY REPLY\nIS NO",
+            "MY\nSOURCES\nSAY NO",
+            "OUTLOOK\nNOT SO\nGOOD",
+            "VERY\nDOUBTFUL"
+        ];
+
+        // Scene setup
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+        camera.position.z = 8;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(600, 600);
+        renderer.setClearColor(0x000000, 0);
+        container.appendChild(renderer.domElement);
+
+        // Create canvas texture for the ball with "8" and blue window
+        const canvas = document.createElement('canvas');
+        canvas.width = 4096;  // High resolution
+        canvas.height = 2048;
+        const ctx = canvas.getContext('2d');
+
+        // Function to draw the complete texture
+        function drawTexture(answerText = '', floatOffset = 0, opacity = 1) {
+            // Fill with black
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw the "8" on one side with white circle background
+            const eightX = canvas.width * 0.75;
+            const eightY = canvas.height / 2;
+            const circleRadius = 160;
+
+            // White circle background
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(eightX, eightY, circleRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Black "8"
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 240px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('8', eightX, eightY);
+
+            // Draw the window on the opposite side
+            const windowX = canvas.width * 0.25;
+            const windowY = canvas.height / 2;
+            const windowRadius = 110;
+            const fluidRadius = 220; // Larger radius to fill the full answer region
+
+            // Draw dark blue fluid in the window area
+            const fluidGradient = ctx.createRadialGradient(
+                windowX, windowY, 0,
+                windowX, windowY, fluidRadius
+            );
+            fluidGradient.addColorStop(0, 'rgba(8, 20, 40, 1)');
+            fluidGradient.addColorStop(0.7, 'rgba(5, 15, 35, 1)');
+            fluidGradient.addColorStop(1, 'rgba(2, 8, 20, 1)');
+            
+            ctx.fillStyle = fluidGradient;
+            ctx.beginPath();
+            ctx.arc(windowX, windowY, fluidRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Add very subtle inner shadow for slight depth
+            const shadowGradient = ctx.createRadialGradient(
+                windowX, windowY, fluidRadius - 30,
+                windowX, windowY, fluidRadius
+            );
+            shadowGradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+            shadowGradient.addColorStop(0.8, 'rgba(0, 0, 0, 0)');
+            shadowGradient.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
+            
+            ctx.fillStyle = shadowGradient;
+            ctx.beginPath();
+            ctx.arc(windowX, windowY, fluidRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // If we have an answer, draw the triangle and text
+            if (answerText) {
+                // Save context and apply opacity
+                ctx.save();
+                ctx.globalAlpha = opacity;
+                
+                // Draw blue triangle - much bigger
+                const triangleSize = 350;
+                const triangleY = windowY - 50 + floatOffset; // Position higher with float offset
+                
+                ctx.fillStyle = 'rgba(26, 61, 122, 1)';
+                ctx.beginPath();
+                ctx.moveTo(windowX, triangleY - triangleSize * 0.4); // Top point
+                ctx.lineTo(windowX - triangleSize * 0.5, triangleY + triangleSize * 0.45); // Bottom left
+                ctx.lineTo(windowX + triangleSize * 0.5, triangleY + triangleSize * 0.45); // Bottom right
+                ctx.closePath();
+                ctx.fill();
+
+                // Draw answer text
+                ctx.fillStyle = '#e8f0ff';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // Split text by newlines
+                const lines = answerText.split('\n');
+                
+                // Use smaller text ONLY for "CONCENTRATE AND ASK AGAIN"
+                const isLongAnswer = answerText === "CONCENTRATE\nAND ASK\nAGAIN";
+                
+                const lineHeight = isLongAnswer ? 28 : 32;
+                const firstCharSize = isLongAnswer ? 34 : 42;
+                const normalSize = isLongAnswer ? 26 : 34;
+                const startY = windowY + 10 + floatOffset; // Raised to match triangle
+                
+                // Draw each line
+                lines.forEach((line, index) => {
+                    // Make first character of first line bigger
+                    if (index === 0 && line.length > 0) {
+                        const firstChar = line.charAt(0);
+                        const restOfLine = line.substring(1);
+                        
+                        // Measure at actual sizes
+                        ctx.font = `bold ${firstCharSize}px Arial`;
+                        const firstCharWidth = ctx.measureText(firstChar).width;
+                        ctx.font = `bold ${normalSize}px Arial`;
+                        const restWidth = ctx.measureText(restOfLine).width;
+                        
+                        // Calculate total width and starting position (accounting for narrowing)
+                        const narrowScale = 0.85;
+                        const totalWidth = (firstCharWidth + restWidth) * narrowScale;
+                        const startX = windowX - totalWidth / 2;
+                        
+                        // Save context and apply horizontal scale to make text narrower
+                        ctx.save();
+                        ctx.scale(narrowScale, 1);
+                        
+                        // Draw first character larger
+                        ctx.font = `bold ${firstCharSize}px Arial`;
+                        ctx.textAlign = 'left';
+                        ctx.fillText(firstChar, startX / narrowScale, startY + (index - lines.length / 2 + 0.5) * lineHeight);
+                        
+                        // Draw rest of the line
+                        ctx.font = `bold ${normalSize}px Arial`;
+                        ctx.fillText(restOfLine, (startX + firstCharWidth * narrowScale) / narrowScale, startY + (index - lines.length / 2 + 0.5) * lineHeight);
+                        
+                        ctx.restore();
+                        
+                        // Reset text align
+                        ctx.textAlign = 'center';
+                    } else {
+                        ctx.save();
+                        ctx.scale(0.85, 1);
+                        ctx.font = `bold ${normalSize}px Arial`;
+                        ctx.fillText(line, windowX / 0.85, startY + (index - lines.length / 2 + 0.5) * lineHeight);
+                        ctx.restore();
+                    }
+                });
+                
+                // Restore context after drawing answer with opacity
+                ctx.restore();
+            }
+        }
+
+        // Initial draw without answer
+        drawTexture();
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+
+        // Create the sphere with higher detail for better indentation
+        const geometry = new THREE.SphereGeometry(2.5, 128, 128);
+        
+        // Create indentation by modifying vertices
+        const positions = geometry.attributes.position;
+        const windowLongitude = Math.PI / 2; // +90 degrees
+        const indentDepth = 0.15; // How deep the indentation goes
+        const indentRadius = 0.4; // Size of the indented area in radians - fine tuned
+        
+        for (let i = 0; i < positions.count; i++) {
+            const x = positions.getX(i);
+            const y = positions.getY(i);
+            const z = positions.getZ(i);
+            
+            // Convert to spherical coordinates
+            const radius = Math.sqrt(x * x + y * y + z * z);
+            const theta = Math.atan2(z, x); // longitude
+            const phi = Math.acos(y / radius); // latitude
+            
+            // Check if this vertex is in the window region
+            let thetaDiff = theta - windowLongitude;
+            // Normalize angle difference to [-PI, PI]
+            while (thetaDiff > Math.PI) thetaDiff -= Math.PI * 2;
+            while (thetaDiff < -Math.PI) thetaDiff += Math.PI * 2;
+            
+            const distance = Math.sqrt(thetaDiff * thetaDiff + (phi - Math.PI/2) * (phi - Math.PI/2));
+            
+            if (distance < indentRadius) {
+                // Create smooth indentation with cosine falloff
+                const falloff = Math.cos((distance / indentRadius) * Math.PI / 2);
+                const newRadius = radius - (indentDepth * falloff);
+                
+                // Convert back to cartesian
+                const newX = newRadius * Math.sin(phi) * Math.cos(theta);
+                const newY = newRadius * Math.cos(phi);
+                const newZ = newRadius * Math.sin(phi) * Math.sin(theta);
+                
+                positions.setXYZ(i, newX, newY, newZ);
+            }
+        }
+        
+        // Recalculate normals for proper lighting on the modified geometry
+        geometry.computeVertexNormals();
+        
+        const material = new THREE.MeshPhongMaterial({
+            map: texture,
+            shininess: 30,
+            specular: 0x333333
+        });
+        const sphere = new THREE.Mesh(geometry, material);
+        scene.add(sphere);
+
+        // Create magical purple gas aura with custom shader
+        const auraGeometry = new THREE.SphereGeometry(3.0, 64, 64);
+        
+        // Custom shader for gas-like effect
+        const auraShader = {
+            vertexShader: `
+                varying vec3 vNormal;
+                varying vec3 vPosition;
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+                    vPosition = position;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                varying vec3 vNormal;
+                varying vec3 vPosition;
+                
+                // Simplex noise function
+                vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+                vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+                vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+                vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+                
+                float snoise(vec3 v) {
+                    const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+                    const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+                    vec3 i  = floor(v + dot(v, C.yyy));
+                    vec3 x0 = v - i + dot(i, C.xxx);
+                    vec3 g = step(x0.yzx, x0.xyz);
+                    vec3 l = 1.0 - g;
+                    vec3 i1 = min(g.xyz, l.zxy);
+                    vec3 i2 = max(g.xyz, l.zxy);
+                    vec3 x1 = x0 - i1 + C.xxx;
+                    vec3 x2 = x0 - i2 + C.yyy;
+                    vec3 x3 = x0 - D.yyy;
+                    i = mod289(i);
+                    vec4 p = permute(permute(permute(
+                        i.z + vec4(0.0, i1.z, i2.z, 1.0))
+                        + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+                        + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+                    float n_ = 0.142857142857;
+                    vec3 ns = n_ * D.wyz - D.xzx;
+                    vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+                    vec4 x_ = floor(j * ns.z);
+                    vec4 y_ = floor(j - 7.0 * x_);
+                    vec4 x = x_ *ns.x + ns.yyyy;
+                    vec4 y = y_ *ns.x + ns.yyyy;
+                    vec4 h = 1.0 - abs(x) - abs(y);
+                    vec4 b0 = vec4(x.xy, y.xy);
+                    vec4 b1 = vec4(x.zw, y.zw);
+                    vec4 s0 = floor(b0)*2.0 + 1.0;
+                    vec4 s1 = floor(b1)*2.0 + 1.0;
+                    vec4 sh = -step(h, vec4(0.0));
+                    vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+                    vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+                    vec3 p0 = vec3(a0.xy, h.x);
+                    vec3 p1 = vec3(a0.zw, h.y);
+                    vec3 p2 = vec3(a1.xy, h.z);
+                    vec3 p3 = vec3(a1.zw, h.w);
+                    vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+                    p0 *= norm.x;
+                    p1 *= norm.y;
+                    p2 *= norm.z;
+                    p3 *= norm.w;
+                    vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+                    m = m * m;
+                    return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+                }
+                
+                void main() {
+                    // Multi-layer noise for gas effect
+                    vec3 pos = vPosition * 0.5;
+                    float noise1 = snoise(pos + time * 0.3);
+                    float noise2 = snoise(pos * 2.0 + time * 0.2);
+                    float noise3 = snoise(pos * 4.0 - time * 0.4);
+                    
+                    float finalNoise = (noise1 * 0.5 + noise2 * 0.3 + noise3 * 0.2);
+                    
+                    // Create wispy gas clouds
+                    float gasIntensity = smoothstep(-0.3, 0.8, finalNoise);
+                    
+                    // Fade at edges for ethereal effect
+                    float fresnel = pow(1.0 - abs(dot(vNormal, vec3(0.0, 0.0, 1.0))), 2.0);
+                    
+                    // Purple color variations
+                    vec3 color1 = vec3(0.6, 0.2, 1.0); // Bright purple
+                    vec3 color2 = vec3(0.4, 0.0, 0.8); // Deep purple
+                    vec3 finalColor = mix(color2, color1, gasIntensity);
+                    
+                    float alpha = gasIntensity * fresnel * 0.6;
+                    
+                    gl_FragColor = vec4(finalColor, alpha);
+                }
+            `,
+            uniforms: {
+                time: { value: 0.0 }
+            }
+        };
+        
+        const auraMaterial = new THREE.ShaderMaterial({
+            vertexShader: auraShader.vertexShader,
+            fragmentShader: auraShader.fragmentShader,
+            uniforms: auraShader.uniforms,
+            transparent: true,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+        
+        const aura = new THREE.Mesh(auraGeometry, auraMaterial);
+        scene.add(aura);
+
+        // Add subtle purple point light
+        const purpleLight = new THREE.PointLight(0x9933ff, 0.5, 15);
+        purpleLight.position.set(0, 0, 0);
+        scene.add(purpleLight);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 5, 5);
+        scene.add(directionalLight);
+
+        const rimLight = new THREE.DirectionalLight(0xffffff, 0.3);
+        rimLight.position.set(-5, -5, -5);
+        scene.add(rimLight);
+
+        // Rotation variables
+        let isDragging = false;
+        let justReleased = false; // Track when we just let go of the ball
+        let previousMouseX = 0;
+        let previousMouseY = 0;
+        let rotationVelocityX = 0;
+        let rotationVelocityY = 0;
+        let shakeEnergy = 0;
+        let totalRotation = 0; // Track total rotation for full 360 detection
+        let hasAnswer = false;
+        let isAutoRotating = false;
+        let targetAnswer = '';
+        let needsNewAnswer = false;
+        let answerOpacity = 0; // For fading in the answer
+        let shouldFadeInAnswer = false; // Flag to start fade-in after orientation
+
+        // π shows the 8, so 0 should show the blue window on the opposite side
+        const WINDOW_ANGLE = 0;
+
+        // Mouse events
+        container.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            previousMouseX = e.clientX;
+            previousMouseY = e.clientY;
+            rotationVelocityX = 0;
+            rotationVelocityY = 0;
+            totalRotation = 0; // Reset rotation tracker on new drag
+            isAutoRotating = false;
+            answerOpacity = 0; // Reset opacity when starting to drag
+            shouldFadeInAnswer = false;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+
+            const deltaX = e.clientX - previousMouseX;
+            const deltaY = e.clientY - previousMouseY;
+
+            rotationVelocityY = deltaX * 0.01;
+            rotationVelocityX = deltaY * 0.01;
+
+            sphere.rotation.y += rotationVelocityY;
+            sphere.rotation.x += rotationVelocityX;
+
+            // Track shake energy for triggering answer reveal
+            const movement = Math.abs(deltaX) + Math.abs(deltaY);
+            shakeEnergy = Math.min(100, shakeEnergy + movement * 0.5);
+            
+            // Track total rotation - need full 360 (2π) to get new answer
+            totalRotation += Math.abs(rotationVelocityY) + Math.abs(rotationVelocityX);
+            if (totalRotation > Math.PI * 2) {
+                needsNewAnswer = true;
+            }
+
+            previousMouseX = e.clientX;
+            previousMouseY = e.clientY;
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isDragging) {
+                justReleased = true;
+            }
+            isDragging = false;
+        });
+
+        // Touch events
+        container.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isDragging = true;
+            const touch = e.touches[0];
+            previousMouseX = touch.clientX;
+            previousMouseY = touch.clientY;
+            rotationVelocityX = 0;
+            rotationVelocityY = 0;
+            totalRotation = 0; // Reset rotation tracker on new drag
+            isAutoRotating = false;
+            answerOpacity = 0; // Reset opacity when starting to drag
+            shouldFadeInAnswer = false;
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+
+            const touch = e.touches[0];
+            const deltaX = touch.clientX - previousMouseX;
+            const deltaY = touch.clientY - previousMouseY;
+
+            rotationVelocityY = deltaX * 0.01;
+            rotationVelocityX = deltaY * 0.01;
+
+            sphere.rotation.y += rotationVelocityY;
+            sphere.rotation.x += rotationVelocityX;
+
+            const movement = Math.abs(deltaX) + Math.abs(deltaY);
+            shakeEnergy = Math.min(100, shakeEnergy + movement * 0.5);
+            
+            // Track total rotation - need full 360 (2π) to get new answer
+            totalRotation += Math.abs(rotationVelocityY) + Math.abs(rotationVelocityX);
+            if (totalRotation > Math.PI * 2) {
+                needsNewAnswer = true;
+            }
+
+            previousMouseX = touch.clientX;
+            previousMouseY = touch.clientY;
+        });
+
+        document.addEventListener('touchend', () => {
+            if (isDragging) {
+                justReleased = true;
+            }
+            isDragging = false;
+        });
+
+        // Animation loop
+        let time = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.01;
+
+            // Update gas shader time for flowing animation
+            auraMaterial.uniforms.time.value = time;
+            
+            // Slowly rotate the gas aura for more movement
+            aura.rotation.y += 0.003;
+            aura.rotation.x += 0.001;
+
+            if (!isDragging && !isAutoRotating) {
+                // Apply momentum and friction
+                sphere.rotation.x += rotationVelocityX;
+                sphere.rotation.y += rotationVelocityY;
+
+                rotationVelocityX *= 0.95;
+                rotationVelocityY *= 0.95;
+
+                // Decay shake energy
+                shakeEnergy *= 0.98;
+
+                // Check if ball has stopped
+                if (Math.abs(rotationVelocityX) < 0.001 && Math.abs(rotationVelocityY) < 0.001) {
+                    rotationVelocityX = 0;
+                    rotationVelocityY = 0;
+
+                    // Check if we're already at the correct position
+                    let deltaY = WINDOW_ANGLE - sphere.rotation.y;
+                    while (deltaY > Math.PI) deltaY -= Math.PI * 2;
+                    while (deltaY < -Math.PI) deltaY += Math.PI * 2;
+                    let deltaX = 0 - sphere.rotation.x;
+                    while (deltaX > Math.PI) deltaX -= Math.PI * 2;
+                    while (deltaX < -Math.PI) deltaX += Math.PI * 2;
+                    const alreadyInPosition = Math.abs(deltaY) < 0.1 && Math.abs(deltaX) < 0.1;
+
+                    // Auto-rotate to show window when ball stops after being released
+                    if (justReleased || (hasAnswer && !alreadyInPosition)) {
+                        // Only pick a NEW answer if we don't have one yet, or did a full 360
+                        if (needsNewAnswer || !hasAnswer) {
+                            targetAnswer = answers[Math.floor(Math.random() * answers.length)];
+                            hasAnswer = true;
+                            needsNewAnswer = false;
+                            totalRotation = 0;
+                        }
+                        // Always rotate to show the answer
+                        isAutoRotating = true;
+                        justReleased = false;
+                    }
+                }
+            }
+
+            // Auto-rotation to center the window
+            if (isAutoRotating) {
+                // Target: window facing camera (Y = -PI/2, X = 0)
+                const targetRotY = WINDOW_ANGLE;
+                const targetRotX = 0;
+                
+                // Calculate shortest path to target
+                let deltaY = targetRotY - sphere.rotation.y;
+                // Normalize to [-PI, PI]
+                while (deltaY > Math.PI) deltaY -= Math.PI * 2;
+                while (deltaY < -Math.PI) deltaY += Math.PI * 2;
+                
+                let deltaX = targetRotX - sphere.rotation.x;
+                while (deltaX > Math.PI) deltaX -= Math.PI * 2;
+                while (deltaX < -Math.PI) deltaX += Math.PI * 2;
+                
+                // Smoothly rotate toward target
+                sphere.rotation.y += deltaY * 0.08;
+                sphere.rotation.x += deltaX * 0.08;
+                
+                // Check if centered enough
+                if (Math.abs(deltaY) < 0.05 && Math.abs(deltaX) < 0.05) {
+                    sphere.rotation.y = WINDOW_ANGLE;
+                    sphere.rotation.x = 0;
+                    isAutoRotating = false;
+                    revealAnswer();
+                }
+            }
+
+            // Handle answer fade-in
+            if (shouldFadeInAnswer && answerOpacity < 1) {
+                answerOpacity += 0.02; // Slow fade in
+                if (answerOpacity >= 1) {
+                    answerOpacity = 1;
+                    shouldFadeInAnswer = false;
+                }
+            }
+
+            // Update texture with floating animation when answer is showing
+            if (hasAnswer && targetAnswer) {
+                const floatOffset = (answerOpacity > 0) ? Math.sin(time * 2) * 8 : 0; // Gentle bobbing motion only when visible
+                drawTexture(targetAnswer, floatOffset, answerOpacity);
+                texture.needsUpdate = true;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function revealAnswer() {
+            if (targetAnswer) {
+                // Start the fade-in animation
+                shouldFadeInAnswer = true;
+            }
+        }
+
+        animate();
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            const size = Math.min(window.innerWidth - 40, 600);
+            renderer.setSize(size, size);
+            container.style.width = size + 'px';
+            container.style.height = size + 'px';
+        });
+    </script>
+</body>
+</html>
